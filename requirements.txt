@@ -1,13 +1,18 @@
+# keep numpy first so wheels build/link correctly
 numpy==1.26.4
 pandas==2.2.2
 streamlit==1.36.0
-spacy==3.7.2
-spacy-transformers==1.3.5
-torch==2.3.1
-transformers==4.43.3
+rich==13.9.4
 
-# Preinstall spaCy models (speeds up first run)
+# spaCy stack (3.7 line is stable with NumPy 1.26)
+spacy==3.7.2
+thinc==8.2.4
+
+# transformer pipeline (versions that match spacy-transformers 1.3.5)
+spacy-transformers==1.3.5
+transformers==4.36.2
+torch==2.3.1
+
+# preinstall models at build time (NO runtime installs!)
 en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 en-core-web-trf @ https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.7.2/en_core_web_trf-3.7.2-py3-none-any.whl
-
-
