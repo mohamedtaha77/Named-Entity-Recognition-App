@@ -29,10 +29,8 @@ Pipelines available in the UI:
 
 ---
 
-## 🔗 Live Demo (optional)
-
-Deploy on Streamlit Cloud and put your link here:  
-👉 `https://named-entity-recognition-app-77.streamlit.app/`
+## 🔗 Live Demo
+👉 https://named-entity-recognition-app-77.streamlit.app/
 
 ---
 
