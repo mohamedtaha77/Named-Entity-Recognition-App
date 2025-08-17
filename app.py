@@ -9,10 +9,13 @@
 #   * displaCy visualization embedded in Streamlit
 #   * Entities table + CSV download
 #   * Label filter and simple stats
+#   * Lazy model loading with progress bar
 # -----------------------------
 
 import io
 import json
+import threading
+import time
 import pandas as pd
 import streamlit as st
 
@@ -76,6 +79,18 @@ def build_rule_nlp():
     ruler.add_patterns(patterns)
     return nlp
 
+@st.cache_resource
+def get_nlp_from_choice(choice: str, has_trf: bool):
+    """Return the selected pipeline (cached)."""
+    if choice.startswith("spaCy small"):
+        return load_spacy_model("en_core_web_sm")
+    if choice.startswith("spaCy transformer"):
+        if has_trf:
+            return load_spacy_model("en_core_web_trf")
+        # fallback if transformers not available
+        return load_spacy_model("en_core_web_sm")
+    return build_rule_nlp()
+
 def ents_to_df(doc, allowed=None) -> pd.DataFrame:
     rows = []
     for e in doc.ents:
@@ -103,7 +118,6 @@ def displacy_html(doc, allowed=None) -> str:
     {raw}
     """
 
-
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -129,52 +143,62 @@ labels_filter = st.sidebar.multiselect(
 
 st.sidebar.markdown(
     "<div class='small'>Tip: Transformer is more accurate but heavier. "
-    "If hosting on Streamlit Cloud, first load can take longer.</div>",
+    "On first use it may take longer to load.</div>",
     unsafe_allow_html=True,
 )
 
 # -----------------------------
-# Input area
+# Input area (keep hard-coded sample; override if file uploaded)
 # -----------------------------
 sample_text = (
     "Barack Obama spoke in Berlin about NATO and the European Union. "
     "Later, he returned to the United States to meet Microsoft executives."
 )
 
-uploaded = st.file_uploader("Or upload a .txt file", type=["txt"])
+uploaded = st.file_uploader("Optionally upload a .txt file", type=["txt"])
+text_default = sample_text
 if uploaded is not None:
     try:
-        text = uploaded.read().decode("utf-8")
+        text_default = uploaded.read().decode("utf-8")
     except Exception:
-        text = io.TextIOWrapper(uploaded, encoding="utf-8").read()
-else:
-    text = st.text_area("Input text", value=sample_text, height=180)
+        text_default = io.TextIOWrapper(uploaded, encoding="utf-8").read()
+
+text = st.text_area("Input text", value=text_default, height=180)
 
 # -----------------------------
-# Load selected pipeline
+# Action (button visible; lazy-load with progress bar)
 # -----------------------------
-if model_choice.startswith("spaCy small"):
-    nlp = load_spacy_model("en_core_web_sm")
-elif model_choice.startswith("spaCy transformer"):
-    if not HAS_TRF:
-        st.warning(
-            "`spacy-transformers` not available in this environment. "
-            "Falling back to en_core_web_sm."
-        )
-        nlp = load_spacy_model("en_core_web_sm")
-    else:
-        nlp = load_spacy_model("en_core_web_trf")
-else:
-    nlp = build_rule_nlp()
+go = st.button("Extract Entities")
 
-# -----------------------------
-# Action
-# -----------------------------
-if st.button("Extract Entities"):
+if go:
     if not text.strip():
         st.info("Please enter or upload some text.")
         st.stop()
 
+    if model_choice.startswith("spaCy transformer") and not HAS_TRF:
+        st.warning("`spacy-transformers` is not installed in this environment — using the small model instead.")
+
+    progress = st.progress(0, text="Initializing…")
+    nlp_box = {}
+    done = threading.Event()
+
+    def _load():
+        nlp_box["nlp"] = get_nlp_from_choice(model_choice, HAS_TRF)
+        done.set()
+
+    t = threading.Thread(target=_load)
+    t.start()
+
+    pct = 0
+    while not done.is_set():
+        pct = (pct + 5) % 100
+        progress.progress(pct, text="Loading pipeline…")
+        time.sleep(0.1)
+
+    progress.progress(100, text="Pipeline ready!")
+    nlp = nlp_box["nlp"]
+
+    # Inference
     doc = nlp(text)
 
     # Table
@@ -198,7 +222,10 @@ if st.button("Extract Entities"):
 
     # Quick stats
     st.subheader("Stats")
-    by_label = df["label"].value_counts().rename_axis("label").reset_index(name="count") if not df.empty else pd.DataFrame(columns=["label","count"])
+    by_label = (
+        df["label"].value_counts().rename_axis("label").reset_index(name="count")
+        if not df.empty else pd.DataFrame(columns=["label", "count"])
+    )
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Total entities", int(by_label["count"].sum()) if not by_label.empty else 0)
