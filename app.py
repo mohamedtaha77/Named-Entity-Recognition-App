@@ -192,7 +192,7 @@ if go:
     pct = 0
     while not done.is_set():
         pct = (pct + 5) % 100
-        progress.progress(pct, text="Loading pipeline…")
+        progress.progress(pct, text="Loading pipeline…                This may take a while for the first time due to Model loading")
         time.sleep(0.1)
 
     progress.progress(100, text="Pipeline ready!")
@@ -240,3 +240,4 @@ if go:
 
 # Footer
 st.markdown("<div style='text-align: center;'>Made with ❤️ for Elevvo Internship Task 4</div>", unsafe_allow_html=True)
+
