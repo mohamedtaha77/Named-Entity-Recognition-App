@@ -163,12 +163,6 @@ labels_filter = st.sidebar.multiselect(
     default=[],  # no filter by default
 )
 
-st.sidebar.markdown(
-    "<div class='small'>Tip: Transformer is more accurate but heavier. "
-    "On first use it may take longer to load.</div>",
-    unsafe_allow_html=True,
-)
-
 # -----------------------------
 # Input area (keep hard-coded sample; override if file uploaded)
 # -----------------------------
@@ -257,3 +251,4 @@ if go:
 
 # Footer
 st.markdown("<div style='text-align: center;'>Made with ❤️ for Elevvo Internship Task 4</div>", unsafe_allow_html=True)
+
