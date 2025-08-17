@@ -40,7 +40,6 @@ from spacy import displacy
 from spacy.pipeline import EntityRuler
 from spacy.util import is_package
 
-# Optional: transformer support
 try:
     import spacy_transformers  # noqa: F401
     HAS_TRF = True
@@ -85,7 +84,7 @@ def build_rule_nlp():
         {"label": "ORG", "pattern": "European Union"},
         {"label": "GPE", "pattern": "United States"},
         {"label": "GPE", "pattern": "Germany"},
-        {"label": "PERSON", "pattern": [{"IS_TITLE": True}, {"IS_TITLE": True}]},  # "David Beckham"
+        {"label": "PERSON", "pattern": [{"IS_TITLE": True}, {"IS_TITLE": True}]}, 
         {"label": "MISC", "pattern": "Premier League"},
     ]
     ruler.add_patterns(patterns)
@@ -164,7 +163,7 @@ labels_filter = st.sidebar.multiselect(
 )
 
 # -----------------------------
-# Input area (keep hard-coded sample; override if file uploaded)
+# Input area 
 # -----------------------------
 sample_text = (
     "Barack Obama spoke in Berlin about NATO and the European Union. "
@@ -180,7 +179,7 @@ if uploaded is not None:
 text = st.text_area("Input text", value=text_default, height=180)
 
 # -----------------------------
-# Action (button visible; synchronous load with spinner+progress)
+# Action
 # -----------------------------
 go = st.button("Extract Entities")
 
@@ -196,7 +195,7 @@ if go:
     progress = st.progress(0, text="Resolving pipeline…")
     progress.progress(20, text=f"Preparing '{name}' …")
 
-    # Load chosen pipeline (no threads, cached)
+    # Load chosen pipeline
     with st.spinner(f"Loading {name} …"):
         if name == "rule":
             nlp = build_rule_nlp()
@@ -245,10 +244,11 @@ if go:
     if not by_label.empty:
         st.bar_chart(by_label.set_index("label"))
 
-    # Optional raw JSON
+    # raw JSON
     with st.expander("Show JSON"):
         st.code(json.dumps(df.to_dict(orient="records"), indent=2), language="json")
 
 # Footer
 st.markdown("<div style='text-align: center;'>Made with ❤️ for Elevvo Internship Task 4</div>", unsafe_allow_html=True)
+
 
