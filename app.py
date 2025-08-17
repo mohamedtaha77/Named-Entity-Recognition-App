@@ -9,21 +9,38 @@
 #   * displaCy visualization embedded in Streamlit
 #   * Entities table + CSV download
 #   * Label filter and simple stats
-#   * Lazy model loading with progress bar
+#   * Stable, synchronous model loading with spinner/progress (no threads)
 # -----------------------------
 
+import os
 import io
 import json
-import threading
-import time
+import warnings
 import pandas as pd
 import streamlit as st
+
+# Env hardening for hosted envs
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+try:
+    import torch
+    torch.set_num_threads(1)
+except Exception:
+    pass
+
+# Silence PyTorch/Thinc FutureWarnings about pickle when loading trusted spaCy models
+warnings.filterwarnings(
+    "ignore",
+    message="You are using `torch.load` with `weights_only=False`",
+    category=FutureWarning,
+)
+warnings.filterwarnings("ignore", category=FutureWarning, module="thinc.shims.pytorch")
 
 import spacy
 from spacy import displacy
 from spacy.pipeline import EntityRuler
+from spacy.util import is_package
 
-# Try to import spacy-transformers (optional, for en_core_web_trf)
+# Optional: transformer support
 try:
     import spacy_transformers  # noqa: F401
     HAS_TRF = True
@@ -54,14 +71,9 @@ st.markdown(
 # Helpers
 # -----------------------------
 @st.cache_resource
-def load_spacy_model(name: str):
-    """Load a spaCy pipeline; download if missing."""
-    try:
-        return spacy.load(name)
-    except OSError:
-        from spacy.cli import download
-        download(name)
-        return spacy.load(name)
+def load_spacy_model_local(name: str):
+    """Load a spaCy pipeline that's already installed (no downloads here)."""
+    return spacy.load(name)
 
 @st.cache_resource
 def build_rule_nlp():
@@ -73,23 +85,11 @@ def build_rule_nlp():
         {"label": "ORG", "pattern": "European Union"},
         {"label": "GPE", "pattern": "United States"},
         {"label": "GPE", "pattern": "Germany"},
-        {"label": "PERSON", "pattern": [{"IS_TITLE": True}, {"IS_TITLE": True}]},  # e.g., "David Beckham"
+        {"label": "PERSON", "pattern": [{"IS_TITLE": True}, {"IS_TITLE": True}]},  # "David Beckham"
         {"label": "MISC", "pattern": "Premier League"},
     ]
     ruler.add_patterns(patterns)
     return nlp
-
-@st.cache_resource
-def get_nlp_from_choice(choice: str, has_trf: bool):
-    """Return the selected pipeline (cached)."""
-    if choice.startswith("spaCy small"):
-        return load_spacy_model("en_core_web_sm")
-    if choice.startswith("spaCy transformer"):
-        if has_trf:
-            return load_spacy_model("en_core_web_trf")
-        # fallback if transformers not available
-        return load_spacy_model("en_core_web_sm")
-    return build_rule_nlp()
 
 def ents_to_df(doc, allowed=None) -> pd.DataFrame:
     rows = []
@@ -106,23 +106,45 @@ def displacy_html(doc, allowed=None) -> str:
     raw = displacy.render(
         doc, style="ent", page=False, jupyter=False, options={"compact": True}
     )
-
     return f"""
     <style>
-      /* make unlabeled text white */
+      /* make unlabeled text white for dark themes */
       .entities {{ color:#ffffff !important; }}
-      /* keep entity text/labels dark for contrast (covers both 'entity' and 'ent' classes) */
-      .entities mark.entity, .entities mark.entity * ,
+      /* keep entity text/labels dark for contrast */
+      .entities mark.entity, .entities mark.entity *,
       .entities mark.ent,    .entities mark.ent    * {{ color:#111111 !important; }}
     </style>
     {raw}
     """
 
+def choose_pipeline_name(choice: str) -> tuple[str, str | None]:
+    """Return (name, warning_message). Never downloads; only uses installed packages."""
+    if choice.startswith("spaCy transformer"):
+        if not HAS_TRF:
+            return ("en_core_web_sm" if is_package("en_core_web_sm") else "rule",
+                    "`spacy-transformers` not available — using the small model.")
+        if is_package("en_core_web_trf"):
+            return ("en_core_web_trf", None)
+        elif is_package("en_core_web_sm"):
+            return ("en_core_web_sm", "`en_core_web_trf` not installed — using the small model.")
+        else:
+            return ("rule", "`en_core_web_trf` not installed — using rule-based baseline.")
+
+    if choice.startswith("spaCy small"):
+        if is_package("en_core_web_sm"):
+            return ("en_core_web_sm", None)
+        elif is_package("en_core_web_trf") and HAS_TRF:
+            return ("en_core_web_trf", "`en_core_web_sm` not installed — using transformer model.")
+        else:
+            return ("rule", "`en_core_web_sm` not installed — using rule-based baseline.")
+
+    # Rule-based chosen
+    return ("rule", None)
+
 # -----------------------------
 # Sidebar
 # -----------------------------
 st.sidebar.header("Settings")
-
 model_choice = st.sidebar.radio(
     "Pipeline",
     (
@@ -154,7 +176,6 @@ sample_text = (
     "Barack Obama spoke in Berlin about NATO and the European Union. "
     "Later, he returned to the United States to meet Microsoft executives."
 )
-
 uploaded = st.file_uploader("Optionally upload a .txt file", type=["txt"])
 text_default = sample_text
 if uploaded is not None:
@@ -162,11 +183,10 @@ if uploaded is not None:
         text_default = uploaded.read().decode("utf-8")
     except Exception:
         text_default = io.TextIOWrapper(uploaded, encoding="utf-8").read()
-
 text = st.text_area("Input text", value=text_default, height=180)
 
 # -----------------------------
-# Action (button visible; lazy-load with progress bar)
+# Action (button visible; synchronous load with spinner+progress)
 # -----------------------------
 go = st.button("Extract Entities")
 
@@ -175,30 +195,27 @@ if go:
         st.info("Please enter or upload some text.")
         st.stop()
 
-    if model_choice.startswith("spaCy transformer") and not HAS_TRF:
-        st.warning("`spacy-transformers` is not installed in this environment — using the small model instead.")
+    name, note = choose_pipeline_name(model_choice)
+    if note:
+        st.warning(note)
 
-    progress = st.progress(0, text="Initializing…")
-    nlp_box = {}
-    done = threading.Event()
+    progress = st.progress(0, text="Resolving pipeline…")
+    progress.progress(20, text=f"Preparing '{name}' …")
 
-    def _load():
-        nlp_box["nlp"] = get_nlp_from_choice(model_choice, HAS_TRF)
-        done.set()
-
-    t = threading.Thread(target=_load)
-    t.start()
-
-    pct = 0
-    while not done.is_set():
-        pct = (pct + 5) % 100
-        progress.progress(pct, text="Loading pipeline…                This may take a while for the first time due to Model loading")
-        time.sleep(0.1)
+    # Load chosen pipeline (no threads, cached)
+    with st.spinner(f"Loading {name} …"):
+        if name == "rule":
+            nlp = build_rule_nlp()
+        else:
+            try:
+                nlp = load_spacy_model_local(name)
+            except Exception as e:
+                st.error(f"Failed to load '{name}'. Falling back to rule-based. Details: {e}")
+                nlp = build_rule_nlp()
 
     progress.progress(100, text="Pipeline ready!")
-    nlp = nlp_box["nlp"]
 
-    # Inference
+    # ---- Inference
     doc = nlp(text)
 
     # Table
@@ -240,4 +257,3 @@ if go:
 
 # Footer
 st.markdown("<div style='text-align: center;'>Made with ❤️ for Elevvo Internship Task 4</div>", unsafe_allow_html=True)
-
