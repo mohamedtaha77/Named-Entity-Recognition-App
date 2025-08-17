@@ -32,7 +32,7 @@ Pipelines available in the UI:
 ## 🔗 Live Demo (optional)
 
 Deploy on Streamlit Cloud and put your link here:  
-👉 `https://your-ner-app.streamlit.app/`
+👉 `https://named-entity-recognition-app-77.streamlit.app/`
 
 ---
 
@@ -131,57 +131,3 @@ streamlit run app.py
 - `en_core_web_trf` generally **wins on F1** (better boundaries, fewer ORG↔GPE mix-ups).
 
 ---
-
-## 🔧 Optional: Fine-tune a spaCy Model (advanced)
-
-If you want to train on CoNLL-2003:
-
-```bash
-# Convert CoNLL to spaCy DocBin
-python -m spacy convert train.txt ./data -c iob --file-type spacy
-python -m spacy convert valid.txt ./data -c iob --file-type spacy
-
-# Create a config (small or transformer)
-python -m spacy init config config.cfg --pipeline ner --lang en --optimize efficiency
-
-# Train
-python -m spacy train config.cfg   --paths.train ./data/train.spacy   --paths.dev ./data/valid.spacy   --output ./models/ner_sm
-```
-
-Then point the app to your model:
-```python
-nlp = spacy.load("models/ner_sm/model-best")
-```
-
----
-
-## 🧠 Why NER (and how this differs from Task-3)
-
-- **Task-4:** **Sequence labeling** — many labels per sentence (each entity span gets a type).  
-- **Task-3:** **Document classification** — one label per article (Fake/Real).  
-- That’s why this project centers on **spans**, **displaCy**, and **span-level P/R/F1**, not TF-IDF or confusion matrices.
-
----
-
-## 📜 Requirements
-
-```
-streamlit==1.36.0
-spacy>=3.7.2
-spacy-transformers>=1.3.5  # optional; remove if you don't use the transformer model
-pandas>=2.2.2
-```
-
----
-
-## 🙌 Acknowledgments
-
-- Dataset: **CoNLL-2003 (English)**  
-- Libraries: **spaCy**, **streamlit**, **pandas**
-
----
-
-### ✅ Submit to Elevvo
-
-- Include the notebook, app code, and exported artifacts.  
-- Publish a short LinkedIn post with a brief demo/summary and link to the repo or app.  
